@@ -1,0 +1,6 @@
+*.png
+*.dmg
+*.qcow
+*.qcow2
+*.chunklist
+.env*
