@@ -21,6 +21,8 @@
 #                                       rebuild OpenCore.qcow2 (for Apple ID sign-in; VM must be stopped)
 #   macos-kvm link                    - symlink this script to ~/.local/bin/macos-kvm (done by the full setup too)
 #   macos-kvm unlink                  - remove that symlink
+#   macos-kvm uninstall [--dry-run] [--yes]
+#                                     - remove everything the setup installed (see uninstall.sh)
 #
 # watch -n1 'lsusb | grep -i apple'
 #
@@ -312,10 +314,13 @@ case "${1:-}" in
         echo "Start the VM and check:  macos-kvm ssh 'sysctl kern.hv_vmm_present'   (expected: 0), then sign in to Apple Account."
         echo "If macOS does not boot: in $INSTALL_DIR/OpenCore restore  OpenCore.qcow2.bak  and  config.plist.pre-cloak  (mv/cp over the current files)."
         exit 0 ;;
+    uninstall)
+        shift
+        exec bash "$(dirname "$SELF")/uninstall.sh" "$@" ;;
     "")
         ;;  # no argument: full setup below
     *)
-        die "Unknown command '$1'. Use: run | shot [file] | usb attach|detach | ssh [cmd] | send FILE... | get REMOTE [DIR] | copy [TEXT] | paste | smbios | cloak | link | unlink (no argument = full setup)" ;;
+        die "Unknown command '$1'. Use: run | shot [file] | usb attach|detach | ssh [cmd] | send FILE... | get REMOTE [DIR] | copy [TEXT] | paste | smbios | cloak | link | unlink | uninstall (no argument = full setup)" ;;
 esac
 
 # -----------------------------------------------------------------------------
@@ -446,9 +451,7 @@ echo "  2. Disk Utility -> QEMU HARDDISK (the large one) -> Erase -> APFS, GUID"
 echo "  3. Reinstall macOS -> select that disk (internet access required)"
 echo "  4. After each reboot pick \"macOS Installer\", then \"macOS\""
 echo "After the install: enable System Settings -> General -> Sharing -> Remote Login, then sign in to Apple Account."
-echo "After the install: enable System Settings -> General -> Sharing -> Remote Login, then sign in to Apple Account."
 echo "Screenshot of the VM display:  macos-kvm shot"
 echo "iPhone into the VM (after macOS booted):  macos-kvm usb attach   /   usb detach"
 echo "Clipboard and files:  macos-kvm copy | paste | send | get   (ssh shortcut: macos-kvm ssh)"
-echo "iPhone into the VM (after macOS booted):  macos-kvm usb attach   /   usb detach"
-echo "Clipboard and files:  macos-kvm copy | paste | send | get   (ssh shortcut: macos-kvm ssh)"
+echo "Remove everything this project installed:  macos-kvm uninstall   (--dry-run to preview)"
