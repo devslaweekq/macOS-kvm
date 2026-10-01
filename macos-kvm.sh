@@ -4,7 +4,7 @@
 #
 # Usage:
 #   bash macos-kvm.sh                 - full setup (packages, KVM, recovery image, disk, launch script tweaks,
-#                                       unique SMBIOS for Apple ID; safe to re-run)
+#                                       unique SMBIOS and VM cloaking for Apple ID; safe to re-run)
 #   macos-kvm run                     - start the VM
 #   macos-kvm shot [file]             - save a PNG screenshot of the VM display (default: ./screen.png)
 #   macos-kvm usb attach [VID:PID]    - pass a host USB device (default: iPhone/any Apple) through to the VM
@@ -17,6 +17,8 @@
 #   macos-kvm paste                   - put the macOS clipboard into the host clipboard (stdout if piped)
 #   macos-kvm smbios                  - generate a unique serial/MLB/UUID/ROM into OpenCore/config.plist and rebuild
 #                                       OpenCore.qcow2 (needed for Apple ID sign-in; VM must be stopped)
+#   macos-kvm cloak                   - hide the VM from macOS (kern.hv_vmm_present=0 via RestrictEvents fork) and
+#                                       rebuild OpenCore.qcow2 (for Apple ID sign-in; VM must be stopped)
 #   macos-kvm link                    - symlink this script to ~/.local/bin/macos-kvm (done by the full setup too)
 #   macos-kvm unlink                  - remove that symlink
 #
@@ -71,8 +73,8 @@ smbios_is_placeholder() {
     perl -0777 -ne 'exit(/<key>PlatformInfo<\/key>.*?<key>Generic<\/key>\s*<dict>.*?<key>SystemSerialNumber<\/key>\s*<string>W00000000001<\/string>/s ? 0 : 1)' "$1"
 }
 
-# Writes a fresh serial/MLB/UUID/ROM into OpenCore/config.plist and rebuilds OpenCore.qcow2 (the VM must be stopped)
-smbios_generate() {
+# Common checks for everything that edits OpenCore/config.plist and rebuilds OpenCore.qcow2 (sets OC_DIR and CFG)
+oc_prepare() {
     OC_DIR="$INSTALL_DIR/OpenCore"
     CFG="$OC_DIR/config.plist"
     [ -f "$CFG" ] || die "$CFG not found - run the full setup first: macos-kvm"
@@ -80,6 +82,22 @@ smbios_generate() {
     for t in perl curl unzip guestfish; do
         command -v "$t" >/dev/null || die "$t is required: sudo apt install perl curl unzip libguestfs-tools"
     done
+}
+
+oc_rebuild() {
+    [ -z "${OC_DEFER_REBUILD:-}" ] || return 0   # the full setup rebuilds once after all tweaks
+    info "Rebuilding OpenCore.qcow2 (sudo)..."
+    pushd "$OC_DIR" >/dev/null
+    [ ! -f OpenCore.qcow2 ] || mv -f OpenCore.qcow2 OpenCore.qcow2.bak
+    sudo ./opencore-image-ng.sh --cfg config.plist --img OpenCore.qcow2 >/dev/null \
+        || { [ ! -f OpenCore.qcow2.bak ] || mv -f OpenCore.qcow2.bak OpenCore.qcow2; die "OpenCore image build failed (previous image restored)"; }
+    ok "OpenCore.qcow2 rebuilt (previous image: OpenCore.qcow2.bak)"
+    popd >/dev/null
+}
+
+# Writes a fresh serial/MLB/UUID/ROM into OpenCore/config.plist and rebuilds OpenCore.qcow2 (the VM must be stopped)
+smbios_generate() {
+    oc_prepare
     # macserial (OpenCorePkg) makes serial/MLB pairs with a valid format; use $MACSERIAL, PATH, or fetch it once
     MACSERIAL="${MACSERIAL:-$(command -v macserial || true)}"
     if [ -z "$MACSERIAL" ]; then
@@ -121,13 +139,47 @@ smbios_generate() {
     mv "$CFG.new" "$CFG"
     ok "config.plist: $MODEL serial=$SERIAL MLB=$MLB UUID=$UUID ROM=$ROM_HEX (original kept as config.plist.orig)"
 
-    info "Rebuilding OpenCore.qcow2 (sudo)..."
-    pushd "$OC_DIR" >/dev/null
-    [ ! -f OpenCore.qcow2 ] || mv -f OpenCore.qcow2 OpenCore.qcow2.bak
-    sudo ./opencore-image-ng.sh --cfg config.plist --img OpenCore.qcow2 >/dev/null \
-        || { [ ! -f OpenCore.qcow2.bak ] || mv -f OpenCore.qcow2.bak OpenCore.qcow2; die "OpenCore image build failed (previous image restored)"; }
-    ok "OpenCore.qcow2 rebuilt (previous image: OpenCore.qcow2.bak)"
-    popd >/dev/null
+    oc_rebuild
+}
+
+# Hides the VM from macOS. Apple ID sign-in on Sequoia/Tahoe needs kern.hv_vmm_present=0, and hiding the CPUID
+# hypervisor bit in QEMU makes Tahoe unbootable. Instead: Lilu + DrDonk's RestrictEvents fork (OC4VM project)
+# with revpatch=...,novmm in boot-args. Undo: restore OpenCore.qcow2.bak and config.plist.pre-cloak.
+cloak_install() {
+    oc_prepare
+    local KEXTS="$OC_DIR/EFI/OC/Kexts" BACKUP="$OC_DIR/EFI/OC/.backup" TMP
+    local BASE_URL="https://raw.githubusercontent.com/DrDonk/OC4VM/master/software"
+    [ -d "$KEXTS" ] || die "$KEXTS not found - run the full setup first: macos-kvm"
+    TMP="$(mktemp -d)"
+    info "Downloading Lilu 1.7.2 and the RestrictEvents fork 1.1.7 (OC4VM)..."
+    curl -fsSL -o "$TMP/lilu.zip" "$BASE_URL/acidanthera/Lilu-1.7.2-RELEASE.zip"
+    curl -fsSL -o "$TMP/re.zip" "$BASE_URL/DrDonk/RestrictEvents-1.1.7-RELEASE.zip"
+    unzip -q -o "$TMP/lilu.zip" 'Lilu.kext/*' -d "$TMP"
+    unzip -q -o "$TMP/re.zip" 'RestrictEvents.kext/*' -d "$TMP"
+    mkdir -p "$BACKUP"
+    [ ! -d "$KEXTS/Lilu.kext" ] || [ -d "$BACKUP/Lilu.kext" ] || cp -a "$KEXTS/Lilu.kext" "$BACKUP/"
+    rm -rf "$KEXTS/Lilu.kext" "$KEXTS/RestrictEvents.kext"
+    cp -a "$TMP/Lilu.kext" "$TMP/RestrictEvents.kext" "$KEXTS/"
+    rm -rf "$TMP"
+
+    cp "$CFG" "$CFG.pre-cloak"
+    perl -0777 -pe '
+        # kext entry right after Lilu.kext (Lilu has to load first)
+        unless (m{<string>RestrictEvents\.kext</string>}) {
+            my @f = (["Arch", "<string>x86_64</string>"], ["BundlePath", "<string>RestrictEvents.kext</string>"],
+                     ["Comment", "<string>RestrictEvents fork (kern.hv_vmm_present)</string>"], ["Enabled", "<true/>"],
+                     ["ExecutablePath", "<string>Contents/MacOS/RestrictEvents</string>"], ["MaxKernel", "<string></string>"],
+                     ["MinKernel", "<string>20.3.0</string>"], ["PlistPath", "<string>Contents/Info.plist</string>"]);
+            my $entry = "\t\t\t<dict>\n" . join("", map { "\t\t\t\t<key>$_->[0]</key>\n\t\t\t\t$_->[1]\n" } @f) . "\t\t\t</dict>\n";
+            s{(<key>BundlePath</key>\s*<string>Lilu\.kext</string>.*?</dict>\n)}{$1$entry}s or die "Lilu.kext entry not found\n";
+        }
+        # boot-args (rewritten at every boot: it is in NVRAM/Delete)
+        s{(<key>boot-args</key>\s*<string>)([^<]*)(</string>)}{my ($a, $b, $c) = ($1, $2, $3); $b =~ s/\s*revpatch=\S*//g; "$a$b revpatch=sbvmm,asset,novmm$c"}e
+            or die "boot-args not found\n";
+    ' "$CFG" >"$CFG.new" || { rm -f "$CFG.new"; die "Failed to patch $CFG (original untouched)"; }
+    mv "$CFG.new" "$CFG"
+    ok "config.plist: RestrictEvents.kext added, boot-args get revpatch=sbvmm,asset,novmm (previous: config.plist.pre-cloak)"
+    oc_rebuild
 }
 
 # -----------------------------------------------------------------------------
@@ -255,10 +307,15 @@ case "${1:-}" in
         echo "Start the VM, then check:  macos-kvm ssh 'system_profiler SPHardwareDataType | grep -i -E \"serial|uuid\"'"
         echo "Then sign in: System Settings -> Apple Account. Optional: confirm the serial is unused at https://checkcoverage.apple.com (\"not valid\" is what you want)."
         exit 0 ;;
+    cloak)
+        cloak_install
+        echo "Start the VM and check:  macos-kvm ssh 'sysctl kern.hv_vmm_present'   (expected: 0), then sign in to Apple Account."
+        echo "If macOS does not boot: in $INSTALL_DIR/OpenCore restore  OpenCore.qcow2.bak  and  config.plist.pre-cloak  (mv/cp over the current files)."
+        exit 0 ;;
     "")
         ;;  # no argument: full setup below
     *)
-        die "Unknown command '$1'. Use: run | shot [file] | usb attach|detach | ssh [cmd] | send FILE... | get REMOTE [DIR] | copy [TEXT] | paste | smbios | link | unlink (no argument = full setup)" ;;
+        die "Unknown command '$1'. Use: run | shot [file] | usb attach|detach | ssh [cmd] | send FILE... | get REMOTE [DIR] | copy [TEXT] | paste | smbios | cloak | link | unlink (no argument = full setup)" ;;
 esac
 
 # -----------------------------------------------------------------------------
@@ -353,14 +410,25 @@ chmod +x "$F"
 ok "$F configured: ${RAM} MiB, ${CORES} cores (original saved as $F.orig)"
 
 # -----------------------------------------------------------------------------
-# 6b. Unique SMBIOS (serial/MLB/UUID/ROM) so Apple ID / iCloud / iMazing work; skipped once it was generated
+# 6b. OpenCore tweaks for Apple ID / iCloud / iMazing: unique SMBIOS (serial/MLB/UUID/ROM) and VM cloaking
+#     (kern.hv_vmm_present=0). Each is skipped once done; OpenCore.qcow2 is rebuilt once at the end if needed.
 # -----------------------------------------------------------------------------
+OC_CHANGED=""
 if smbios_is_placeholder "$INSTALL_DIR/OpenCore/config.plist"; then
     info "OpenCore still has the placeholder SMBIOS - generating a unique one..."
-    smbios_generate
+    OC_DEFER_REBUILD=1 smbios_generate
+    OC_CHANGED=1
 else
     ok "SMBIOS already unique (macos-kvm smbios generates a new one)"
 fi
+if grep -q 'RestrictEvents\.kext' "$INSTALL_DIR/OpenCore/config.plist"; then
+    ok "VM cloaking already configured"
+else
+    info "Adding VM cloaking (RestrictEvents fork)..."
+    OC_DEFER_REBUILD=1 cloak_install
+    OC_CHANGED=1
+fi
+[ -z "$OC_CHANGED" ] || oc_rebuild
 
 # -----------------------------------------------------------------------------
 # 7. Command symlink (run/shot from any directory)
