@@ -5,8 +5,8 @@ One-command setup for running **macOS Tahoe (26)** in a virtual machine on Linux
 
 The script installs the required packages, prepares KVM, downloads the macOS recovery image straight from Apple, creates a system disk,
 tunes the OSX-KVM launch script for Tahoe and prepares OpenCore so that Apple ID sign-in works (unique SMBIOS, VM cloaking). Day-to-day
-helpers cover iPhone USB passthrough, shell and file access to the guest, clipboard sharing and a full uninstall. It is written and
-tested for Ubuntu; other Debian-based distributions should work as well.
+helpers cover iPhone USB passthrough, shell and file access to the guest, clipboard sharing and a full uninstall. It is written and tested
+for Ubuntu; other Debian-based distributions should work as well.
 
 > **Legal notice.** Apple's license only permits running macOS on Apple-branded hardware. This project is provided for educational and
 > research purposes. You are responsible for complying with Apple's license terms.
@@ -41,8 +41,8 @@ bash macos-kvm.sh        # one-time setup (also installs the `macos-kvm` command
 macos-kvm run            # start the VM, from any directory
 ```
 
-The setup creates a symlink `~/.local/bin/macos-kvm` pointing to the script, so every command works from any directory. If
-`~/.local/bin` is not in your `PATH`, the script prints the line to add to `~/.bashrc`.
+The setup creates a symlink `~/.local/bin/macos-kvm` pointing to the script, so every command works from any directory. If `~/.local/bin` is
+not in your `PATH`, the script prints the line to add to `~/.bashrc`.
 
 If the script adds you to the `kvm` group, log out and back in (or run `newgrp kvm`) before starting the VM.
 
@@ -66,22 +66,22 @@ After the installation, in macOS:
 Everything except the setup works from any directory once the symlink exists. Before that, call the script by path:
 `bash /path/to/macos-kvm.sh <command>`. Unknown commands are rejected instead of falling back to the full setup.
 
-| Command                                | Description                                                                                                                    |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `bash macos-kvm.sh`                    | Full setup (see "What the setup does"); idempotent, safe to re-run                                                             |
-| `macos-kvm run`                        | Start the VM (`OpenCore-Boot.sh`)                                                                                              |
-| `macos-kvm shot [file]`                | Save a PNG screenshot of the VM display (default `./screen.png`); needs the VM running                                         |
-| `macos-kvm usb attach [VID:PID]`       | Pass a host USB device through to the running VM (default: the first Apple device, i.e. an iPhone)                             |
-| `macos-kvm usb detach`                 | Give the device back to the host                                                                                               |
-| `macos-kvm ssh [COMMAND...]`           | Open a shell in the VM, or run a command there and print its output                                                            |
-| `macos-kvm send FILE...`               | Copy files/directories into the VM over scp (default destination `~/Desktop/`)                                                 |
-| `macos-kvm get REMOTE [DIR]`           | Copy a file/directory from the VM to `DIR` (default: current directory)                                                        |
-| `macos-kvm copy [TEXT...]`             | Put `TEXT` (or stdin, or the host clipboard) into the macOS clipboard                                                          |
-| `macos-kvm paste`                      | Put the macOS clipboard into the host clipboard (printed to stdout when piped)                                                 |
-| `macos-kvm smbios`                     | Generate a new unique serial/MLB/UUID/ROM into `OpenCore/config.plist` and rebuild `OpenCore.qcow2` (VM must be stopped)       |
-| `macos-kvm cloak`                      | Hide the VM from macOS (`kern.hv_vmm_present=0`) and rebuild `OpenCore.qcow2` (VM must be stopped)                             |
-| `macos-kvm link` / `macos-kvm unlink`  | Create / remove the `~/.local/bin/macos-kvm` symlink (the setup creates it automatically)                                      |
-| `macos-kvm uninstall [-n] [-y]`        | Remove everything the setup installed (see "Uninstall"); `-n`/`--dry-run` only prints, `-y`/`--yes` answers yes to all questions |
+| Command                               | Description                                                                                                                      |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `bash macos-kvm.sh`                   | Full setup (see "What the setup does"); idempotent, safe to re-run                                                               |
+| `macos-kvm run`                       | Start the VM (`OpenCore-Boot.sh`)                                                                                                |
+| `macos-kvm shot [file]`               | Save a PNG screenshot of the VM display (default `./screen.png`); needs the VM running                                           |
+| `macos-kvm usb attach [VID:PID]`      | Pass a host USB device through to the running VM (default: the first Apple device, i.e. an iPhone)                               |
+| `macos-kvm usb detach`                | Give the device back to the host                                                                                                 |
+| `macos-kvm ssh [COMMAND...]`          | Open a shell in the VM, or run a command there and print its output                                                              |
+| `macos-kvm send FILE...`              | Copy files/directories into the VM over scp (default destination `~/Desktop/`)                                                   |
+| `macos-kvm get REMOTE [DIR]`          | Copy a file/directory from the VM to `DIR` (default: current directory)                                                          |
+| `macos-kvm copy [TEXT...]`            | Put `TEXT` (or stdin, or the host clipboard) into the macOS clipboard                                                            |
+| `macos-kvm paste`                     | Put the macOS clipboard into the host clipboard (printed to stdout when piped)                                                   |
+| `macos-kvm smbios`                    | Generate a new unique serial/MLB/UUID/ROM into `OpenCore/config.plist` and rebuild `OpenCore.qcow2` (VM must be stopped)         |
+| `macos-kvm cloak`                     | Hide the VM from macOS (`kern.hv_vmm_present=0`) and rebuild `OpenCore.qcow2` (VM must be stopped)                               |
+| `macos-kvm link` / `macos-kvm unlink` | Create / remove the `~/.local/bin/macos-kvm` symlink (the setup creates it automatically)                                        |
+| `macos-kvm uninstall [-n] [-y]`       | Remove everything the setup installed (see "Uninstall"); `-n`/`--dry-run` only prints, `-y`/`--yes` answers yes to all questions |
 
 `ssh`, `send`, `get`, `copy` and `paste` talk to the guest through the forwarded port `2222` (`hostfwd` in `OpenCore-Boot.sh`) with the
 account named like your host user; override it with `MAC_USER`. They ask for the macOS password each time unless you install a key:
@@ -92,21 +92,21 @@ account named like your host user; override it with `MAC_USER`. They ask for the
 
 Set these environment variables when running the script:
 
-| Variable      | Default                | Description                                                                                                        |
-| ------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `RAM`         | `8192`                 | Guest memory in MiB                                                                                                |
-| `CORES`       | `6`                    | Guest CPU cores (one thread per core)                                                                              |
-| `DISK_SIZE`   | `60G`                  | Size of the system disk (qcow2)                                                                                    |
-| `OS`          | `tahoe`                | macOS release: `high-sierra`, `mojave`, `catalina`, `big-sur`, `monterey`, `ventura`, `sonoma`, `sequoia`, `tahoe` |
-| `INSTALL_DIR` | `$HOME/OSX-KVM`        | Where OSX-KVM is cloned                                                                                            |
-| `QMP`         | `/tmp/qemu-qmp.sock`   | QMP socket used by `shot` and `usb`                                                                                |
-| `LINK_DIR`    | `$HOME/.local/bin`     | Where the `macos-kvm` symlink is created                                                                           |
-| `MAC_USER`    | your host user name    | macOS account used by `ssh`, `send`, `get`, `copy`, `paste`                                                        |
-| `MAC_PORT`    | `2222`                 | Host port forwarded to the guest's SSH                                                                             |
-| `MAC_DEST`    | `~/Desktop/`           | Destination folder of `send` inside macOS                                                                          |
-| `USB_BUS`     | `ehci.0`               | Guest USB controller used by `usb attach`                                                                          |
-| `USB_ID`      | `usbdev`               | QEMU device id used by `usb attach` / `usb detach`                                                                 |
-| `MACSERIAL`   | auto                   | Path to `macserial`; by default taken from `PATH` or downloaded once into `$INSTALL_DIR/.cache`                    |
+| Variable      | Default              | Description                                                                                                        |
+| ------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `RAM`         | `8192`               | Guest memory in MiB                                                                                                |
+| `CORES`       | `6`                  | Guest CPU cores (one thread per core)                                                                              |
+| `DISK_SIZE`   | `60G`                | Size of the system disk (qcow2)                                                                                    |
+| `OS`          | `tahoe`              | macOS release: `high-sierra`, `mojave`, `catalina`, `big-sur`, `monterey`, `ventura`, `sonoma`, `sequoia`, `tahoe` |
+| `INSTALL_DIR` | `$HOME/OSX-KVM`      | Where OSX-KVM is cloned                                                                                            |
+| `QMP`         | `/tmp/qemu-qmp.sock` | QMP socket used by `shot` and `usb`                                                                                |
+| `LINK_DIR`    | `$HOME/.local/bin`   | Where the `macos-kvm` symlink is created                                                                           |
+| `MAC_USER`    | your host user name  | macOS account used by `ssh`, `send`, `get`, `copy`, `paste`                                                        |
+| `MAC_PORT`    | `2222`               | Host port forwarded to the guest's SSH                                                                             |
+| `MAC_DEST`    | `~/Desktop/`         | Destination folder of `send` inside macOS                                                                          |
+| `USB_BUS`     | `ehci.0`             | Guest USB controller used by `usb attach`                                                                          |
+| `USB_ID`      | `usbdev`             | QEMU device id used by `usb attach` / `usb detach`                                                                 |
+| `MACSERIAL`   | auto                 | Path to `macserial`; by default taken from `PATH` or downloaded once into `$INSTALL_DIR/.cache`                    |
 
 Example:
 
@@ -132,18 +132,18 @@ An existing `BaseSystem.img` and `mac_hdd_ng.img` are kept, and steps already do
 
 ### Apple ID support: unique SMBIOS and VM cloaking
 
-Apple ID, iCloud and App Store sign-in fail in a stock OSX-KVM guest ("Your Mac cannot be authorized by Apple's servers",
-"An unknown error occurred"). Two things are fixed in `OpenCore/config.plist`:
+Apple ID, iCloud and App Store sign-in fail in a stock OSX-KVM guest ("Your Mac cannot be authorized by Apple's servers", "An unknown error
+occurred"). Two things are fixed in `OpenCore/config.plist`:
 
 - **Unique SMBIOS.** OSX-KVM ships a placeholder identity (serial `W00000000001`, zero UUID). The setup generates a valid serial/MLB pair
   with `macserial` (from [OpenCorePkg](https://github.com/acidanthera/OpenCorePkg)), a random UUID and a locally administered ROM, and
   writes them to `PlatformInfo → Generic`. The original file is kept as `config.plist.orig`. It runs only while the placeholder is present,
   so re-running the setup does not change the identity; `macos-kvm smbios` forces a new one.
-- **VM cloaking.** Sequoia and Tahoe check `sysctl kern.hv_vmm_present` and refuse to authorize a virtual machine. The setup installs
-  Lilu 1.7.2 and the RestrictEvents fork 1.1.7 from the [OC4VM](https://github.com/DrDonk/OC4VM) project and adds
-  `revpatch=sbvmm,asset,novmm` to `boot-args`, which forces the value to `0`. Check it in the guest:
-  `macos-kvm ssh 'sysctl kern.hv_vmm_present'` (expected `0`). The previous files are kept as `config.plist.pre-cloak` and
-  `OpenCore.qcow2.bak`. Hiding the CPUID hypervisor bit instead (`-cpu ...,-hypervisor`) makes Tahoe fail to boot; do not use it.
+- **VM cloaking.** Sequoia and Tahoe check `sysctl kern.hv_vmm_present` and refuse to authorize a virtual machine. The setup installs Lilu
+  1.7.2 and the RestrictEvents fork 1.1.7 from the [OC4VM](https://github.com/DrDonk/OC4VM) project and adds `revpatch=sbvmm,asset,novmm` to
+  `boot-args`, which forces the value to `0`. Check it in the guest: `macos-kvm ssh 'sysctl kern.hv_vmm_present'` (expected `0`). The
+  previous files are kept as `config.plist.pre-cloak` and `OpenCore.qcow2.bak`. Hiding the CPUID hypervisor bit instead
+  (`-cpu ...,-hypervisor`) makes Tahoe fail to boot; do not use it.
 
 Both commands download third-party binaries (`macserial`, Lilu, RestrictEvents fork) at setup time. Tested with macOS 26.7.1.
 
@@ -176,19 +176,19 @@ macos-kvm uninstall               # asks before the destructive steps
 
 (or `bash uninstall.sh` from the repository). It removes:
 
-| What                                                                 | Asked first?                                   |
-| -------------------------------------------------------------------- | ---------------------------------------------- |
-| Runtime USB leftovers (driver blacklist, `usbmuxd` mask), QMP socket | no                                             |
-| `~/.local/bin/macos-kvm` symlink, `~/.ssh/known_hosts_macos-kvm`     | no                                             |
-| `/etc/modprobe.d/kvm.conf` written by the setup (`ignore_msrs`)     | no (only if the content is exactly ours)       |
+| What                                                                  | Asked first?                                   |
+| --------------------------------------------------------------------- | ---------------------------------------------- |
+| Runtime USB leftovers (driver blacklist, `usbmuxd` mask), QMP socket  | no                                             |
+| `~/.local/bin/macos-kvm` symlink, `~/.ssh/known_hosts_macos-kvm`      | no                                             |
+| `/etc/modprobe.d/kvm.conf` written by the setup (`ignore_msrs`)       | no (only if the content is exactly ours)       |
 | `$INSTALL_DIR` (OSX-KVM, images, OpenCore, **the macOS system disk**) | **yes** (default No)                           |
-| `kvm` group membership                                               | **yes** (default No)                           |
-| QEMU packages (`qemu-system-x86`, `qemu-utils`)                      | **yes** (default No; `apt` shows its own list) |
-| Helper packages (`dmg2img`, `libguestfs-tools`, `ovmf`, `socat`)     | **yes** (default No)                           |
+| `kvm` group membership                                                | **yes** (default No)                           |
+| QEMU packages (`qemu-system-x86`, `qemu-utils`)                       | **yes** (default No; `apt` shows its own list) |
+| Helper packages (`dmg2img`, `libguestfs-tools`, `ovmf`, `socat`)      | **yes** (default No)                           |
 
 `git`, `wget`, `curl`, `unzip`, `perl` and `python3` are never removed, and neither is this repository. The VM must be shut down first.
-`--yes` answers "yes" to every question, including deleting the macOS disk. Packages are purged without `--auto-remove`: apt removes
-only what depends on them (for example `libguestfs-tools` goes together with QEMU); dependencies left over (such as the libvirt stack that
+`--yes` answers "yes" to every question, including deleting the macOS disk. Packages are purged without `--auto-remove`: apt removes only
+what depends on them (for example `libguestfs-tools` goes together with QEMU); dependencies left over (such as the libvirt stack that
 `libguestfs-tools` pulls in as a recommendation) stay until you run `sudo apt autoremove` yourself.
 
 ## Troubleshooting
@@ -199,9 +199,9 @@ only what depends on them (for example `libguestfs-tools` goes together with QEM
 - **`shot`/`usb` report a missing socket.** The VM must be running and started through this script's tweaked `OpenCore-Boot.sh` (the `-qmp`
   option); re-run `bash macos-kvm.sh` if it was not applied.
 - **Keyboard and mouse do not work.** The launch script attaches a USB keyboard and tablet on an xHCI controller; do not remove those lines.
-- **Apple ID: "Your Mac cannot be authorized" / "unknown error".** Check `macos-kvm ssh 'system_profiler SPHardwareDataType | grep -i serial'`
-  (must not be `W00000000001`) and `sysctl kern.hv_vmm_present` (must be `0`). If not, stop the VM and run `macos-kvm smbios` /
-  `macos-kvm cloak`. The log shows the cause:
+- **Apple ID: "Your Mac cannot be authorized" / "unknown error".** Check
+  `macos-kvm ssh 'system_profiler SPHardwareDataType | grep -i serial'` (must not be `W00000000001`) and `sysctl kern.hv_vmm_present` (must
+  be `0`). If not, stop the VM and run `macos-kvm smbios` / `macos-kvm cloak`. The log shows the cause:
   `macos-kvm ssh "/usr/bin/log show --last 3m --info --predicate 'process == \"akd\"' | grep -i -E 'error|anisette|attestation'"`.
 - **macOS does not boot after `cloak`.** In `$INSTALL_DIR/OpenCore` restore `OpenCore.qcow2.bak` over `OpenCore.qcow2` and
   `config.plist.pre-cloak` over `config.plist`.
@@ -218,12 +218,12 @@ be operated. QEMU/KVM with OpenCore provides working USB input and CPU features 
 
 ## Repository layout
 
-| Path                 | Purpose                                                                                |
-| -------------------- | -------------------------------------------------------------------------------------- |
+| Path                 | Purpose                                                                                   |
+| -------------------- | ----------------------------------------------------------------------------------------- |
 | `macos-kvm.sh`       | Setup and all commands (run, shot, usb, ssh, send, get, copy, paste, smbios, cloak, link) |
-| `uninstall.sh`       | Removes everything the setup installed (also available as `macos-kvm uninstall`)       |
-| `.github/CODEOWNERS` | Code ownership                                                                         |
-| `LICENSE`            | MIT license                                                                            |
+| `uninstall.sh`       | Removes everything the setup installed (also available as `macos-kvm uninstall`)          |
+| `.github/CODEOWNERS` | Code ownership                                                                            |
+| `LICENSE`            | MIT license                                                                               |
 
 ## Credits
 
