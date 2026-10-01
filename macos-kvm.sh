@@ -12,6 +12,8 @@
 #   macos-kvm ssh [COMMAND...]       - open a shell in the VM, or run a command there and print its output
 #   macos-kvm send FILE...          - copy files/dirs into the VM over scp (default ~/Desktop/)
 #   macos-kvm get REMOTE [DIR]        - copy a file/dir from the VM to DIR (default: current dir)
+#   macos-kvm copy [TEXT...]          - put TEXT (or stdin, or the host clipboard) into the macOS clipboard
+#   macos-kvm paste                   - put the macOS clipboard into the host clipboard (stdout if piped)
 #   macos-kvm link                    - symlink this script to ~/.local/bin/macos-kvm (done by the full setup too)
 #   macos-kvm unlink                  - remove that symlink
 #
@@ -42,6 +44,7 @@ MAC_USER="${MAC_USER:-${USER:-$(id -un)}}"      # account name inside macOS
 MAC_PORT="${MAC_PORT:-2222}"         # host port forwarded to guest :22 (hostfwd in OpenCore-Boot.sh)
 MAC_DEST="${MAC_DEST:-~/Desktop/}"   # where "send" puts files in the guest
 SCP_OPTS=(-P "$MAC_PORT" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$HOME/.ssh/known_hosts_macos-kvm")
+SSH_OPTS=(-p "$MAC_PORT" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$HOME/.ssh/known_hosts_macos-kvm")
 
 CYAN='\033[0;36m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
 info() { echo -e "${CYAN}==>${NC} $*"; }
@@ -131,7 +134,40 @@ case "${1:-}" in
     ssh)
         shift
         command -v ssh >/dev/null || die "ssh is required: sudo apt install openssh-client"
-        exec ssh -p "$MAC_PORT" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$HOME/.ssh/known_hosts_macos-kvm" "$MAC_USER@localhost" "$@" ;;
+        exec ssh "${SSH_OPTS[@]}" "$MAC_USER@localhost" "$@" ;;
+    copy)
+        # host -> macOS clipboard: TEXT args, else stdin if piped, else the host clipboard
+        shift
+        command -v ssh >/dev/null || die "ssh is required: sudo apt install openssh-client"
+        if [ "$#" -gt 0 ]; then
+            printf '%s' "$*"
+        elif [ ! -t 0 ]; then
+            cat
+        elif [ -n "${WAYLAND_DISPLAY:-}" ] && command -v wl-paste >/dev/null; then
+            wl-paste --no-newline
+        elif command -v xclip >/dev/null; then
+            xclip -selection clipboard -o
+        else
+            die "Nothing to copy: pass TEXT, pipe stdin, or install wl-clipboard/xclip to use the host clipboard"
+        fi | ssh "${SSH_OPTS[@]}" "$MAC_USER@localhost" 'LANG=en_US.UTF-8 pbcopy'
+        ok "Copied to the macOS clipboard"
+        exit 0 ;;
+    paste)
+        # macOS clipboard -> host clipboard (printed to stdout instead when stdout is piped)
+        command -v ssh >/dev/null || die "ssh is required: sudo apt install openssh-client"
+        if [ ! -t 1 ]; then
+            exec ssh "${SSH_OPTS[@]}" "$MAC_USER@localhost" 'LANG=en_US.UTF-8 pbpaste'
+        fi
+        TEXT="$(ssh "${SSH_OPTS[@]}" "$MAC_USER@localhost" 'LANG=en_US.UTF-8 pbpaste')"
+        if [ -n "${WAYLAND_DISPLAY:-}" ] && command -v wl-copy >/dev/null; then
+            printf '%s' "$TEXT" | wl-copy
+        elif command -v xclip >/dev/null; then
+            printf '%s' "$TEXT" | xclip -selection clipboard
+        else
+            die "Install wl-clipboard (Wayland) or xclip (X11) to fill the host clipboard"
+        fi
+        ok "macOS clipboard copied to the host (${#TEXT} chars)"
+        exit 0 ;;
     send)
         shift
         [ "$#" -gt 0 ] || die "Usage: macos-kvm send FILE_OR_DIR... (destination: \$MAC_DEST, default ~/Desktop/)"
@@ -149,7 +185,7 @@ case "${1:-}" in
     "")
         ;;  # no argument: full setup below
     *)
-        die "Unknown command '$1'. Use: run | shot [file] | usb attach|detach | ssh [cmd] | send FILE... | get REMOTE [DIR] | link | unlink (no argument = full setup)" ;;
+        die "Unknown command '$1'. Use: run | shot [file] | usb attach|detach | ssh [cmd] | send FILE... | get REMOTE [DIR] | copy [TEXT] | paste | link | unlink (no argument = full setup)" ;;
 esac
 
 # -----------------------------------------------------------------------------
