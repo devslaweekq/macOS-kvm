@@ -3,7 +3,8 @@
 # https://github.com/DrDonk/recoveryOS
 #
 # Usage:
-#   bash macos-kvm.sh                 - full setup (packages, KVM, recovery image, disk, launch script tweaks)
+#   bash macos-kvm.sh                 - full setup (packages, KVM, recovery image, disk, launch script tweaks,
+#                                       unique SMBIOS for Apple ID; safe to re-run)
 #   macos-kvm run                     - start the VM
 #   macos-kvm shot [file]             - save a PNG screenshot of the VM display (default: ./screen.png)
 #   macos-kvm usb attach [VID:PID]    - pass a host USB device (default: iPhone/any Apple) through to the VM
@@ -14,6 +15,8 @@
 #   macos-kvm get REMOTE [DIR]        - copy a file/dir from the VM to DIR (default: current dir)
 #   macos-kvm copy [TEXT...]          - put TEXT (or stdin, or the host clipboard) into the macOS clipboard
 #   macos-kvm paste                   - put the macOS clipboard into the host clipboard (stdout if piped)
+#   macos-kvm smbios                  - generate a unique serial/MLB/UUID/ROM into OpenCore/config.plist and rebuild
+#                                       OpenCore.qcow2 (needed for Apple ID sign-in; VM must be stopped)
 #   macos-kvm link                    - symlink this script to ~/.local/bin/macos-kvm (done by the full setup too)
 #   macos-kvm unlink                  - remove that symlink
 #
@@ -60,6 +63,71 @@ link_script() {
         *":$LINK_DIR:"*) ;;
         *) warn "$LINK_DIR is not in PATH - add to ~/.bashrc:  export PATH=\"$LINK_DIR:\$PATH\"" ;;
     esac
+}
+
+# OSX-KVM ships a placeholder identity (serial W00000000001, zero UUID). Apple ID / iCloud / App Store refuse such
+# a "Mac" ("Your Mac cannot be authorized by Apple's servers"), so a unique one is generated during the setup.
+smbios_is_placeholder() {
+    perl -0777 -ne 'exit(/<key>PlatformInfo<\/key>.*?<key>Generic<\/key>\s*<dict>.*?<key>SystemSerialNumber<\/key>\s*<string>W00000000001<\/string>/s ? 0 : 1)' "$1"
+}
+
+# Writes a fresh serial/MLB/UUID/ROM into OpenCore/config.plist and rebuilds OpenCore.qcow2 (the VM must be stopped)
+smbios_generate() {
+    OC_DIR="$INSTALL_DIR/OpenCore"
+    CFG="$OC_DIR/config.plist"
+    [ -f "$CFG" ] || die "$CFG not found - run the full setup first: macos-kvm"
+    ! pgrep -f qemu-system-x86_64 >/dev/null || die "The VM is running - shut it down first (OpenCore.qcow2 gets rebuilt)"
+    for t in perl curl unzip guestfish; do
+        command -v "$t" >/dev/null || die "$t is required: sudo apt install perl curl unzip libguestfs-tools"
+    done
+    # macserial (OpenCorePkg) makes serial/MLB pairs with a valid format; use $MACSERIAL, PATH, or fetch it once
+    MACSERIAL="${MACSERIAL:-$(command -v macserial || true)}"
+    if [ -z "$MACSERIAL" ]; then
+        MACSERIAL="$INSTALL_DIR/.cache/macserial"
+        if [ ! -x "$MACSERIAL" ]; then
+            info "Downloading macserial from the latest OpenCorePkg release..."
+            URL="$(curl -fsS https://api.github.com/repos/acidanthera/OpenCorePkg/releases/latest | grep -oE 'https://[^"]+RELEASE\.zip' | head -1)"
+            [ -n "$URL" ] || die "Could not find the OpenCorePkg RELEASE.zip URL"
+            TMP="$(mktemp -d)"
+            curl -fsSL -o "$TMP/oc.zip" "$URL"
+            unzip -q -o -j "$TMP/oc.zip" 'Utilities/macserial/macserial.linux' -d "$TMP"
+            mkdir -p "$(dirname "$MACSERIAL")"
+            install -m 755 "$TMP/macserial.linux" "$MACSERIAL"
+            rm -rf "$TMP"
+        fi
+    fi
+    MODEL="$(perl -0777 -ne 'print $1 if /<key>PlatformInfo<\/key>.*?<key>SystemProductName<\/key>\s*<string>([^<]+)<\/string>/s' "$CFG")"
+    [ -n "$MODEL" ] || die "SystemProductName not found in $CFG"
+    PAIR="$("$MACSERIAL" -m "$MODEL" -n 1 2>/dev/null | grep ' | ' | head -1 || true)"
+    [ -n "$PAIR" ] || die "macserial produced no serial for $MODEL"
+    export SERIAL="${PAIR%% | *}" MLB="${PAIR##* | }"
+    export UUID="$(tr a-z A-Z </proc/sys/kernel/random/uuid)"
+    ROM_HEX="$(head -c 6 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+    export ROM_HEX="$(printf '%02x' $(( (0x${ROM_HEX:0:2} & 0xFC) | 0x02 )))${ROM_HEX:2}"   # unicast, locally administered
+
+    [ -f "$CFG.orig" ] || cp "$CFG" "$CFG.orig"
+    # Only the PlatformInfo/Generic dict is touched (DataHub/PlatformNVRAM/SMBIOS keep their own copies)
+    perl -0777 -pe '
+        use MIME::Base64;
+        my ($pre, $gen, $post) = /\A(.*?<key>PlatformInfo<\/key>.*?<key>Generic<\/key>\s*<dict>)(.*?)(<\/dict>.*)\z/s
+            or die "PlatformInfo/Generic not found\n";
+        my $rom = encode_base64(pack("H*", $ENV{ROM_HEX}), "");
+        $gen =~ s{(<key>SystemSerialNumber</key>\s*<string>)[^<]*(</string>)}{$1$ENV{SERIAL}$2} or die "SystemSerialNumber missing\n";
+        $gen =~ s{(<key>MLB</key>\s*<string>)[^<]*(</string>)}{$1$ENV{MLB}$2}                   or die "MLB missing\n";
+        $gen =~ s{(<key>SystemUUID</key>\s*<string>)[^<]*(</string>)}{$1$ENV{UUID}$2}           or die "SystemUUID missing\n";
+        $gen =~ s{(<key>ROM</key>\s*<data>)[^<]*(</data>)}{$1$rom$2}                            or die "ROM missing\n";
+        $_ = $pre . $gen . $post;
+    ' "$CFG" >"$CFG.new" || { rm -f "$CFG.new"; die "Failed to patch $CFG (original untouched)"; }
+    mv "$CFG.new" "$CFG"
+    ok "config.plist: $MODEL serial=$SERIAL MLB=$MLB UUID=$UUID ROM=$ROM_HEX (original kept as config.plist.orig)"
+
+    info "Rebuilding OpenCore.qcow2 (sudo)..."
+    pushd "$OC_DIR" >/dev/null
+    [ ! -f OpenCore.qcow2 ] || mv -f OpenCore.qcow2 OpenCore.qcow2.bak
+    sudo ./opencore-image-ng.sh --cfg config.plist --img OpenCore.qcow2 >/dev/null \
+        || { [ ! -f OpenCore.qcow2.bak ] || mv -f OpenCore.qcow2.bak OpenCore.qcow2; die "OpenCore image build failed (previous image restored)"; }
+    ok "OpenCore.qcow2 rebuilt (previous image: OpenCore.qcow2.bak)"
+    popd >/dev/null
 }
 
 # -----------------------------------------------------------------------------
@@ -182,10 +250,15 @@ case "${1:-}" in
         scp "${SCP_OPTS[@]}" -r "$MAC_USER@localhost:$2" "${3:-.}"
         ok "Copied from VM to ${3:-.}"
         exit 0 ;;
+    smbios)
+        smbios_generate
+        echo "Start the VM, then check:  macos-kvm ssh 'system_profiler SPHardwareDataType | grep -i -E \"serial|uuid\"'"
+        echo "Then sign in: System Settings -> Apple Account. Optional: confirm the serial is unused at https://checkcoverage.apple.com (\"not valid\" is what you want)."
+        exit 0 ;;
     "")
         ;;  # no argument: full setup below
     *)
-        die "Unknown command '$1'. Use: run | shot [file] | usb attach|detach | ssh [cmd] | send FILE... | get REMOTE [DIR] | copy [TEXT] | paste | link | unlink (no argument = full setup)" ;;
+        die "Unknown command '$1'. Use: run | shot [file] | usb attach|detach | ssh [cmd] | send FILE... | get REMOTE [DIR] | copy [TEXT] | paste | smbios | link | unlink (no argument = full setup)" ;;
 esac
 
 # -----------------------------------------------------------------------------
@@ -206,7 +279,7 @@ ok "kvm ignore_msrs=1 (now and after reboot)"
 # -----------------------------------------------------------------------------
 info "Installing packages..."
 sudo apt-get update -qq
-sudo apt-get install -y qemu-system-x86 qemu-utils ovmf dmg2img git wget socat python3
+sudo apt-get install -y qemu-system-x86 qemu-utils ovmf dmg2img git wget socat python3 perl curl unzip libguestfs-tools
 ok "Packages installed"
 
 QEMU_VER="$(qemu-system-x86_64 --version | head -1 | grep -oE '[0-9]+\.[0-9]+' | head -1)"
@@ -272,8 +345,22 @@ sed -i -E 's/^(\s*)#\s*(-enable-kvm .* -cpu Skylake-Client)/\1\2/'        "$F"
 # QMP socket for screenshots (the "shot" subcommand)
 grep -q -- '-qmp ' "$F" || sed -i -E "s|^(\s*)-monitor stdio|\1-monitor stdio\n\1-qmp unix:$QMP,server,nowait|" "$F"
 
+# EHCI controller for "usb attach": an iPhone is not seen by macOS behind the xhci controller
+grep -qE '^\s*-device usb-ehci,id=ehci' "$F" || sed -i -E 's|^(\s*)-device qemu-xhci,id=xhci|&\n\1-device usb-ehci,id=ehci|' "$F"
+grep -qE '^\s*-device usb-ehci,id=ehci' "$F" || die "Could not add the usb-ehci controller to $F - add '-device usb-ehci,id=ehci' by hand"
+
 chmod +x "$F"
 ok "$F configured: ${RAM} MiB, ${CORES} cores (original saved as $F.orig)"
+
+# -----------------------------------------------------------------------------
+# 6b. Unique SMBIOS (serial/MLB/UUID/ROM) so Apple ID / iCloud / iMazing work; skipped once it was generated
+# -----------------------------------------------------------------------------
+if smbios_is_placeholder "$INSTALL_DIR/OpenCore/config.plist"; then
+    info "OpenCore still has the placeholder SMBIOS - generating a unique one..."
+    smbios_generate
+else
+    ok "SMBIOS already unique (macos-kvm smbios generates a new one)"
+fi
 
 # -----------------------------------------------------------------------------
 # 7. Command symlink (run/shot from any directory)
@@ -290,4 +377,10 @@ echo "  1. In the OpenCore menu pick \"macOS Base System (External)\""
 echo "  2. Disk Utility -> QEMU HARDDISK (the large one) -> Erase -> APFS, GUID"
 echo "  3. Reinstall macOS -> select that disk (internet access required)"
 echo "  4. After each reboot pick \"macOS Installer\", then \"macOS\""
+echo "After the install: enable System Settings -> General -> Sharing -> Remote Login, then sign in to Apple Account."
+echo "After the install: enable System Settings -> General -> Sharing -> Remote Login, then sign in to Apple Account."
 echo "Screenshot of the VM display:  macos-kvm shot"
+echo "iPhone into the VM (after macOS booted):  macos-kvm usb attach   /   usb detach"
+echo "Clipboard and files:  macos-kvm copy | paste | send | get   (ssh shortcut: macos-kvm ssh)"
+echo "iPhone into the VM (after macOS booted):  macos-kvm usb attach   /   usb detach"
+echo "Clipboard and files:  macos-kvm copy | paste | send | get   (ssh shortcut: macos-kvm ssh)"
