@@ -85,7 +85,7 @@ case "${1:-}" in
     usb)
         command -v socat >/dev/null || die "socat is required: sudo apt install socat"
         USB_ID="${USB_ID:-usbdev}"       # QEMU device id used for attach/detach
-        USB_BUS="${USB_BUS:-xhci.0}"     # guest USB controller (id=xhci in OpenCore-Boot.sh)
+        USB_BUS="${USB_BUS:-ehci.0}"     # guest USB controller (id=ehci in OpenCore-Boot.sh); an iPhone is not seen by macOS behind xhci.0
         MODPROBE_CONF=/run/modprobe.d/macos-kvm-usb.conf
         qmp() { { printf '%s\n' '{"execute":"qmp_capabilities"}' "$1"; sleep 1; } | socat -t2 - "UNIX-CONNECT:$QMP" | tail -1; }
         # While the device is in the VM, keep the host from grabbing it: ipheth / apple-mfi-fastcharge / usbmuxd
