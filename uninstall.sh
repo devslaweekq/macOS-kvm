@@ -130,12 +130,12 @@ else
     ok "$USER is not in the kvm group"
 fi
 
-# --- 6. Packages -----------------------------------------------------------------------------------------------
+# --- 6. Packages (plain purge, no --auto-remove: leftover dependencies may belong to other tools) ----------------
 info "Packages"
 PKGS=(); for p in "${QEMU_PKGS[@]}"; do pkg_installed "$p" && PKGS+=("$p"); done
 if [ "${#PKGS[@]}" -gt 0 ]; then
     if ask "Uninstall QEMU (${PKGS[*]})? apt shows the full list first"; then
-        if [ -n "$ASSUME_YES" ]; then act sudo apt-get purge -y "${PKGS[@]}"; else act sudo apt-get purge --auto-remove "${PKGS[@]}"; fi
+        if [ -n "$ASSUME_YES" ]; then act sudo apt-get purge -y "${PKGS[@]}"; else act sudo apt-get purge "${PKGS[@]}"; fi
         REMOVED+=("QEMU packages")
     else
         KEPT+=("QEMU packages")
@@ -146,7 +146,7 @@ fi
 PKGS=(); for p in "${HELPER_PKGS[@]}"; do pkg_installed "$p" && PKGS+=("$p"); done
 if [ "${#PKGS[@]}" -gt 0 ]; then
     if ask "Uninstall helper packages the setup installed (${PKGS[*]})? You may use them elsewhere"; then
-        if [ -n "$ASSUME_YES" ]; then act sudo apt-get purge -y "${PKGS[@]}"; else act sudo apt-get purge --auto-remove "${PKGS[@]}"; fi
+        if [ -n "$ASSUME_YES" ]; then act sudo apt-get purge -y "${PKGS[@]}"; else act sudo apt-get purge "${PKGS[@]}"; fi
         REMOVED+=("helper packages: ${PKGS[*]}")
     else
         KEPT+=("helper packages")
@@ -158,5 +158,6 @@ echo
 [ -z "$DRY_RUN" ] && echo -e "${GREEN}Done.${NC}" || echo -e "${YELLOW}Dry run finished - nothing was changed.${NC}"
 [ "${#REMOVED[@]}" -eq 0 ] || { [ -n "$DRY_RUN" ] && echo "Would remove:" || echo "Removed:"; printf '  - %s\n' "${REMOVED[@]}"; }
 [ "${#KEPT[@]}" -eq 0 ] || { echo "Kept:"; printf '  - %s\n' "${KEPT[@]}"; }
+echo "Leftover dependencies are not removed automatically; review them with: sudo apt autoremove --dry-run"
 echo "Not touched: this repository ($(realpath "$(dirname "${BASH_SOURCE[0]}")")), git/wget/curl/unzip/perl/python3, and anything you installed for other purposes"
 echo "(for example pymobiledevice3, libimobiledevice, ipatool). Remove the repository folder by hand if you do not need it."

@@ -187,7 +187,9 @@ macos-kvm uninstall               # asks before the destructive steps
 | Helper packages (`dmg2img`, `libguestfs-tools`, `ovmf`, `socat`)     | **yes** (default No)                           |
 
 `git`, `wget`, `curl`, `unzip`, `perl` and `python3` are never removed, and neither is this repository. The VM must be shut down first.
-`--yes` answers "yes" to every question, including deleting the macOS disk.
+`--yes` answers "yes" to every question, including deleting the macOS disk. Packages are purged without `--auto-remove`: apt removes
+only what depends on them (for example `libguestfs-tools` goes together with QEMU); dependencies left over (such as the libvirt stack that
+`libguestfs-tools` pulls in as a recommendation) stay until you run `sudo apt autoremove` yourself.
 
 ## Troubleshooting
 
